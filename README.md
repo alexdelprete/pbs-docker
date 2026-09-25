@@ -105,6 +105,13 @@ default, so a plain `- /run` fails with `Permission denied` before anything
 starts. `/run:exec,mode=0755` is the working form in both `docker run --tmpfs`
 and compose.
 
+Set `hostname:`. The API generates its TLS certificate on first start with
+the container's FQDN as the CN, and X.509 caps that at 64 characters. Without
+an explicit hostname, a host with a long DNS search domain can push the
+resolved name past the limit, and the API crash-loops on certificate
+generation. The container logs a warning at startup when this is about to
+happen.
+
 The three PBS directories should be bind mounts or volumes. The container warns
 at startup if they are not, since their contents are otherwise lost when the
 container is recreated. Ownership and permissions are set on every start, so

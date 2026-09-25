@@ -9,6 +9,14 @@ install -d -o backup -g backup -m 0700 /run/proxmox-backup
 install -d -o backup -g backup -m 0700 /var/lib/proxmox-backup
 install -d -o backup -g backup -m 0700 /var/log/proxmox-backup
 
+# The API generates its TLS certificate with the FQDN as the CN, and X.509
+# caps the CN at 64 characters. Hosts with long DNS search domains can push
+# an unset container hostname past that, which makes the API crash-loop.
+fqdn=$(hostname -f 2>/dev/null || hostname)
+if [[ ${#fqdn} -gt 64 ]]; then
+    echo "[init-pbs] warning: FQDN '${fqdn}' is ${#fqdn} characters, over the 64 character X.509 CN limit; set a short hostname or certificate generation will fail"
+fi
+
 # Locks left by an unclean shutdown block the API from starting.
 rm -f /etc/proxmox-backup/.*.lck /etc/proxmox-backup/*.lock
 

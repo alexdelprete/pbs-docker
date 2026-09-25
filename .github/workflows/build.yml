@@ -110,7 +110,7 @@ jobs:
       - name: Smoke test
         if: steps.compare.outputs.changed == 'true'
         run: |
-          docker run -d --name smoke --tmpfs /run:exec,mode=0755 -e PBS_ROOT_PASSWORD=smoketest ${{ env.IMAGE }}:build
+          docker run -d --name smoke --hostname pbs-smoke --tmpfs /run:exec,mode=0755 -e PBS_ROOT_PASSWORD=smoketest ${{ env.IMAGE }}:build
           for i in $(seq 1 60); do
             if docker exec smoke curl -ksf -o /dev/null https://127.0.0.1:8007/; then
               echo "proxy answered after ${i}s"
