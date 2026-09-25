@@ -1,0 +1,16 @@
+#!/usr/bin/with-contenv bash
+# shellcheck shell=bash
+# Any variable named FILE__NAME is read from the file it points to and
+# exported as NAME to every later service, so secrets can come from
+# Docker secrets or mounted files instead of the environment.
+for FULLVAR in $(env | grep '^FILE__'); do
+    VARNAME=${FULLVAR%%=*}
+    FILENAME=${FULLVAR#*=}
+    if [[ -f "${FILENAME}" ]]; then
+        printf '%s' "$(< "${FILENAME}")" > "/run/s6/container_environment/${VARNAME#FILE__}"
+        echo "[init-envfile] ${VARNAME#FILE__} set from ${FILENAME}"
+    else
+        echo "[init-envfile] error: ${VARNAME} points to ${FILENAME}, which does not exist" >&2
+        exit 1
+    fi
+done

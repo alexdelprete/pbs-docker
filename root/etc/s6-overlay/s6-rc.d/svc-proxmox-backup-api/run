@@ -1,0 +1,6 @@
+#!/usr/bin/with-contenv bash
+# shellcheck shell=bash
+# The API listens on 127.0.0.1:82. It is ready when it accepts a connection.
+exec \
+    s6-notifyoncheck -d -n 300 -w 1000 -c "curl -s -o /dev/null http://127.0.0.1:82/" \
+        /usr/lib/x86_64-linux-gnu/proxmox-backup/proxmox-backup-api

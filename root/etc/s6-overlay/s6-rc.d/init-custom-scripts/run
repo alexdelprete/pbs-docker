@@ -1,0 +1,14 @@
+#!/usr/bin/with-contenv bash
+# shellcheck shell=bash
+# Executable files in /custom-cont-init.d run once, in name order, before
+# the PBS daemons start. Mount the directory to use it.
+if [[ -d /custom-cont-init.d ]] && [[ -n "$(ls -A /custom-cont-init.d 2>/dev/null)" ]]; then
+    for SCRIPT in /custom-cont-init.d/*; do
+        if [[ -f "${SCRIPT}" ]] && [[ -x "${SCRIPT}" ]]; then
+            echo "[init-custom-scripts] running ${SCRIPT}"
+            "${SCRIPT}"
+        else
+            echo "[init-custom-scripts] skipping ${SCRIPT}, not an executable file"
+        fi
+    done
+fi

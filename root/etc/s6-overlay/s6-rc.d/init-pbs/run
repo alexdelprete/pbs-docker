@@ -1,0 +1,32 @@
+#!/usr/bin/with-contenv bash
+# shellcheck shell=bash
+set -euo pipefail
+
+# /etc, /var/lib and /var/log are bind mounts or volumes, /run is tmpfs.
+# All must exist as backup:backup 0700 before proxmox-backup-api starts.
+install -d -o backup -g backup -m 0700 /etc/proxmox-backup
+install -d -o backup -g backup -m 0700 /run/proxmox-backup
+install -d -o backup -g backup -m 0700 /var/lib/proxmox-backup
+install -d -o backup -g backup -m 0700 /var/log/proxmox-backup
+
+# Locks left by an unclean shutdown block the API from starting.
+rm -f /etc/proxmox-backup/.*.lck /etc/proxmox-backup/*.lock
+
+for mp in /etc/proxmox-backup /var/lib/proxmox-backup /var/log/proxmox-backup; do
+    mountpoint -q "${mp}" || echo "[init-pbs] warning: ${mp} is not a mount, its contents are lost when the container is recreated"
+done
+mountpoint -q /run || echo "[init-pbs] warning: /run is not tmpfs, authentication may fail"
+
+# root@pam authenticates through PAM against the container's root account.
+# /etc/shadow is not persisted, so this runs on every start.
+if [[ -n "${PBS_ROOT_PASSWORD:-}" ]]; then
+    echo "root:${PBS_ROOT_PASSWORD}" | chpasswd
+    echo "[init-pbs] root password set"
+fi
+
+if [[ -n "${TZ:-}" ]] && [[ -f "/usr/share/zoneinfo/${TZ}" ]]; then
+    ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
+    echo "${TZ}" > /etc/timezone
+fi
+
+echo "[init-pbs] proxmox-backup-server $(dpkg-query -f='${Version}' -W proxmox-backup-server)"

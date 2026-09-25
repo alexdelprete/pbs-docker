@@ -1,0 +1,25 @@
+services:
+  pbs:
+    image: ghcr.io/alexdelprete/pbs-docker:latest
+    container_name: pbs
+    hostname: pbs
+    restart: unless-stopped
+    mem_limit: 4G
+    environment:
+      - TZ=Europe/Rome
+      - FILE__PBS_ROOT_PASSWORD=/run/secrets/pbs_root_password
+    secrets:
+      - pbs_root_password
+    volumes:
+      - $PWD/etc:/etc/proxmox-backup
+      - $PWD/logs:/var/log/proxmox-backup
+      - $PWD/lib:/var/lib/proxmox-backup
+      - /backups/pbs:/backups/pbs
+    tmpfs:
+      - /run:exec,mode=0755
+    ports:
+      - 8007:8007
+
+secrets:
+  pbs_root_password:
+    file: ./pbs_root_password
