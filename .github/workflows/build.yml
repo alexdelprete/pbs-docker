@@ -12,6 +12,11 @@ name: Build and publish
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
+  BASE_IMAGE: docker.io/library/debian:13-slim
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
 
 jobs:
   build-test:
@@ -25,12 +30,14 @@ jobs:
         run: docker build .
 
   build-release:
-    name: Build and push
+    name: Build, compare, publish
     runs-on: ubuntu-latest
     needs: build-test
     permissions:
-      contents: read
+      contents: write
       packages: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -52,19 +59,55 @@ jobs:
           load: true
           tags: ${{ env.IMAGE }}:build
 
-      - name: Determine Proxmox Backup Server version
-        id: version
+      - name: Extract PBS version and package manifest
+        id: manifest
         run: |
-          version=$(docker run --rm --entrypoint dpkg-query ${{ env.IMAGE }}:build \
+          pbs=$(docker run --rm --entrypoint dpkg-query ${{ env.IMAGE }}:build \
             -f='${Version}' -W proxmox-backup-server | tr ':' '_')
-          if [ -z "$version" ]; then
-            echo "could not determine version" >&2
+          if [ -z "$pbs" ]; then
+            echo "could not determine PBS version" >&2
             exit 1
           fi
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "Built Proxmox Backup Server ${version}"
+          docker run --rm --entrypoint dpkg-query ${{ env.IMAGE }}:build \
+            -f='${Package} ${Version}\n' -W | sort > packages.txt
+          echo "pbs=${pbs}" >> "$GITHUB_OUTPUT"
+          echo "PBS ${pbs}, $(wc -l < packages.txt) packages"
+
+      - name: Compare with previous release
+        id: compare
+        run: |
+          prev_tag=$(gh api "repos/${{ github.repository }}/releases/latest" --jq '.tag_name' 2>/dev/null || true)
+          if [ -z "$prev_tag" ]; then
+            echo "no previous release, publishing"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "prev_tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh release download "$prev_tag" --pattern packages.txt --output prev-packages.txt
+          if cmp -s packages.txt prev-packages.txt; then
+            echo "package set identical to ${prev_tag}, nothing to publish"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "package set differs from ${prev_tag}, publishing"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "prev_tag=${prev_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Determine build number
+        id: build
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          pbs="${{ steps.manifest.outputs.pbs }}"
+          pattern="^$(printf '%s' "$pbs" | sed 's/\./\\./g')\.[0-9]+$"
+          last=$(gh api "repos/${{ github.repository }}/releases" --paginate --jq '.[].tag_name' \
+            | grep -E "$pattern" | sed 's/.*\.//' | sort -n | tail -1)
+          n=$(( ${last:-0} + 1 ))
+          echo "n=${n}" >> "$GITHUB_OUTPUT"
+          echo "tag=${pbs}.${n}" >> "$GITHUB_OUTPUT"
+          echo "build ${pbs}.${n}"
 
       - name: Smoke test
+        if: steps.compare.outputs.changed == 'true'
         run: |
           docker run -d --name smoke --tmpfs /run:exec,mode=0755 -e PBS_ROOT_PASSWORD=smoketest ${{ env.IMAGE }}:build
           for i in $(seq 1 60); do
@@ -82,12 +125,103 @@ jobs:
           exit 1
 
       - name: Tag and push
+        id: push
+        if: steps.compare.outputs.changed == 'true'
         run: |
+          tag="${{ steps.build.outputs.tag }}"
+          pbs="${{ steps.manifest.outputs.pbs }}"
+          docker tag ${{ env.IMAGE }}:build ${{ env.IMAGE }}:${tag}
+          docker tag ${{ env.IMAGE }}:build ${{ env.IMAGE }}:${pbs}
           docker tag ${{ env.IMAGE }}:build ${{ env.IMAGE }}:latest
-          docker tag ${{ env.IMAGE }}:build ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
-          docker push ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
+          docker push ${{ env.IMAGE }}:${tag}
+          docker push ${{ env.IMAGE }}:${pbs}
           docker push ${{ env.IMAGE }}:latest
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' ${{ env.IMAGE }}:${tag} | cut -d@ -f2)
+          base=$(docker buildx imagetools inspect ${{ env.BASE_IMAGE }} --format '{{json .Manifest.Digest}}' | tr -d '"')
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+
+      - name: Write changelog
+        if: steps.compare.outputs.changed == 'true'
+        env:
+          PBS: ${{ steps.manifest.outputs.pbs }}
+          N: ${{ steps.build.outputs.n }}
+          TAG: ${{ steps.build.outputs.tag }}
+          PREV_TAG: ${{ steps.compare.outputs.prev_tag }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          BASE: ${{ steps.push.outputs.base }}
+        run: |
+          python3 - <<'EOF'
+          import os
+          pbs, n, tag, prev_tag = os.environ["PBS"], os.environ["N"], os.environ["TAG"], os.environ["PREV_TAG"]
+          digest, base, image = os.environ["DIGEST"], os.environ["BASE"], os.environ["IMAGE"]
+
+          def load(path):
+              out = {}
+              if os.path.exists(path):
+                  for line in open(path):
+                      if line.strip():
+                          pkg, ver = line.rstrip("\n").split(" ", 1)
+                          out[pkg] = ver
+              return out
+
+          cur = load("packages.txt")
+          prev = load("prev-packages.txt")
+
+          lines = [f"## Proxmox Backup Server {pbs}, build {n}", ""]
+          lines += ["```",
+                    f"Image   {image}:{tag}",
+                    f"Digest  {digest}",
+                    f"Base    debian:13-slim {base}",
+                    "```", ""]
+
+          if not prev:
+              lines += [f"First release on this tag scheme. {len(cur)} packages installed.", ""]
+          else:
+              prev_pbs = prev.get("proxmox-backup-server", "").replace(":", "_")
+              lines += [f"### Changes since {prev_tag}", ""]
+              if prev_pbs and prev_pbs != pbs:
+                  lines += [f"**Proxmox Backup Server {prev_pbs} -> {pbs}**", ""]
+              upgraded = [(p, prev[p], cur[p]) for p in sorted(cur) if p in prev and prev[p] != cur[p]]
+              added = [(p, cur[p]) for p in sorted(cur) if p not in prev]
+              removed = [(p, prev[p]) for p in sorted(prev) if p not in cur]
+              lines += [f"Upgraded ({len(upgraded)})", ""]
+              if upgraded:
+                  lines += ["| Package | From | To |", "|---|---|---|"]
+                  lines += [f"| {p} | {a} | {b} |" for p, a, b in upgraded]
+                  lines.append("")
+              lines += [f"Added ({len(added)})", ""]
+              if added:
+                  lines += ["| Package | Version |", "|---|---|"]
+                  lines += [f"| {p} | {v} |" for p, v in added]
+                  lines.append("")
+              lines += [f"Removed ({len(removed)})", ""]
+              if removed:
+                  lines += ["| Package | Version |", "|---|---|"]
+                  lines += [f"| {p} | {v} |" for p, v in removed]
+                  lines.append("")
+
+          lines += ["The full package manifest is attached as `packages.txt`."]
+          open("notes.md", "w").write("\n".join(lines) + "\n")
+          print(open("notes.md").read())
+          EOF
+
+      - name: Create release
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          gh release create "${{ steps.build.outputs.tag }}" \
+            --title "${{ steps.build.outputs.tag }}" \
+            --notes-file notes.md \
+            --target "${{ github.sha }}" \
+            --latest \
+            packages.txt
 
       - name: Summary
         run: |
-          echo "Pushed \`${{ env.IMAGE }}:${{ steps.version.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.compare.outputs.changed }}" = "true" ]; then
+            echo "Published \`${{ env.IMAGE }}:${{ steps.build.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            cat notes.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No package changes since \`${{ steps.compare.outputs.prev_tag }}\`, nothing published." >> "$GITHUB_STEP_SUMMARY"
+          fi
