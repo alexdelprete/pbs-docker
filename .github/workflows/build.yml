@@ -76,8 +76,9 @@ jobs:
       - name: Compare with previous release
         id: compare
         run: |
-          prev_tag=$(gh api "repos/${{ github.repository }}/releases/latest" --jq '.tag_name' 2>/dev/null || true)
-          if [ -z "$prev_tag" ]; then
+          prev_tag=$(gh release list --repo "${{ github.repository }}" --exclude-drafts --exclude-pre-releases \
+            --limit 1 --json tagName --jq '.[0].tagName // empty')
+          if [ -z "$prev_tag" ] || [ "$prev_tag" = "null" ]; then
             echo "no previous release, publishing"
             echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "prev_tag=" >> "$GITHUB_OUTPUT"
