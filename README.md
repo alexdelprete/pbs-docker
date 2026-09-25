@@ -8,13 +8,58 @@ from source, so the binaries are the same ones a bare metal PBS install gets.
 ```
 ghcr.io/alexdelprete/pbs-docker:latest
 ghcr.io/alexdelprete/pbs-docker:4.2.6-1
+ghcr.io/alexdelprete/pbs-docker:4.2.6-1.3
 ```
 
-Version tags are derived at build time from the installed package
-(`dpkg-query -W proxmox-backup-server`), so a tag always reflects the actual PBS
-version. A scheduled build runs daily at 12:00 UTC and picks up whatever Proxmox
-currently ships. Every build runs a smoke test that starts the container
-and waits for the web UI to answer before anything is pushed.
+A scheduled build runs daily at 12:00 UTC. It installs whatever Proxmox and
+Debian currently ship, boots the result as a smoke test, and publishes only if
+the set of installed packages differs from the previous build. Days where
+nothing changed produce nothing.
+
+## Tags
+
+Every published build gets one immutable tag and moves two others.
+
+```
+4.2.6-1.3     immutable   this exact build
+4.2.6-1       moving      the newest build of PBS 4.2.6-1
+latest        moving      the newest build of anything
+```
+
+The immutable tag is read as `<PBS package version>.<build>`:
+
+- `4.2.6-1` is the Debian package version of `proxmox-backup-server` inside the
+  image, exactly as `dpkg-query -W` reports it. `4.2.6` is the PBS release and
+  `-1` is Proxmox's packaging revision of it.
+- `.3` is the build number: the third published image containing that exact PBS
+  package. It increments when the Debian base or any other package changes
+  underneath an unchanged PBS. It resets to `.1` when the PBS version changes.
+
+So two images with the same `4.2.6-1` prefix contain identical PBS binaries and
+differ only in what Debian shipped at build time (typically security updates to
+libc, OpenSSL and friends). Two images with different prefixes contain
+different PBS releases.
+
+Pin to the immutable tag for reproducibility, to the moving `4.2.6-1` tag to
+receive base updates without changing your compose file, or to `latest` to
+receive everything.
+
+### SemVer
+
+The tags are valid Semantic Versioning 2.0.0. The PBS release is the
+major.minor.patch, and everything after the hyphen is the prerelease field,
+which SemVer defines as dot-separated identifiers compared left to right with
+numeric identifiers compared as numbers. That gives the ordering you would
+expect:
+
+```
+4.2.6-1  <  4.2.6-1.1  <  4.2.6-1.2  <  4.2.6-1.10  <  4.2.7-1.1
+```
+
+Ordering has been verified against the tag comparison code in What's Up Docker
+9.1.0 and 9.2.0, which is why the build number is a numeric dot-identifier
+rather than a lettered suffix like `-b3`: a lettered suffix is compared as a
+string, so `b10` would sort before `b3`.
 
 ## Why
 
@@ -130,11 +175,14 @@ the container so new releases are reported:
 ```yaml
 labels:
   - wud.watch=true
-  - wud.tag.include=^\d+\.\d+\.\d+-\d+$$
-  - wud.link.template=https://github.com/alexdelprete/pbs-docker/pkgs/container/pbs-docker
+  - wud.tag.include=^\d+\.\d+\.\d+-\d+\.\d+$$
+  - wud.link.template=https://github.com/alexdelprete/pbs-docker/releases/tag/$${original}
 ```
 
-(The `$$` is compose escaping for a literal `$`.)
+(The `$$` is compose escaping for a literal `$`.) The regex matches only the
+immutable tags, so wud reports a new build whether the change was a PBS release
+or a Debian update. Each build has a matching GitHub release listing the package
+changes, which is what the link template points at.
 
 ## Not included
 
