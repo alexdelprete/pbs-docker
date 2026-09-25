@@ -6,8 +6,8 @@ name: Build and publish
     branches:
       - main
   schedule:
-    # At 12:00 on Sunday.
-    - cron: "0 12 * * 0"
+    # Daily at 12:00 UTC.
+    - cron: "0 12 * * *"
   workflow_dispatch:
 
 env:

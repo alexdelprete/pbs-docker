@@ -12,8 +12,8 @@ ghcr.io/alexdelprete/pbs-docker:4.2.6-1
 
 Version tags are derived at build time from the installed package
 (`dpkg-query -W proxmox-backup-server`), so a tag always reflects the actual PBS
-version. A scheduled build runs every Sunday at 12:00 UTC and picks up whatever
-Proxmox currently ships. Every build runs a smoke test that starts the container
+version. A scheduled build runs daily at 12:00 UTC and picks up whatever Proxmox
+currently ships. Every build runs a smoke test that starts the container
 and waits for the web UI to answer before anything is pushed.
 
 ## Why
