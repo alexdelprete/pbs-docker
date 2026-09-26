@@ -33,11 +33,14 @@ The immutable tag is read as `<PBS package version>.<build>`:
   `-1` is Proxmox's packaging revision of it.
 - `.3` is the build number: the third published image containing that exact PBS
   package. It increments when the Debian base or any other package changes
-  underneath an unchanged PBS. It resets to `.1` when the PBS version changes.
+  underneath an unchanged PBS, or when this repo's build inputs (the Dockerfile
+  or anything under `root/`) change. It resets to `.1` when the PBS version
+  changes.
 
 So two images with the same `4.2.6-1` prefix contain identical PBS binaries and
-differ only in what Debian shipped at build time (typically security updates to
-libc, OpenSSL and friends). Two images with different prefixes contain
+differ in what Debian shipped at build time (typically security updates to
+libc, OpenSSL and friends) or in the container's own init and configuration.
+The release notes say which. Two images with different prefixes contain
 different PBS releases.
 
 Pin to the immutable tag for reproducibility, to the moving `4.2.6-1` tag to

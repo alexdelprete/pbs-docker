@@ -70,8 +70,10 @@ jobs:
           fi
           docker run --rm --entrypoint dpkg-query ${{ env.IMAGE }}:build \
             -f='${Package} ${Version}\n' -W | sort > packages.txt
+          inputs=$(git ls-files -s Dockerfile root | sha256sum | cut -c1-12)
+          echo "_build-inputs ${inputs}" >> packages.txt
           echo "pbs=${pbs}" >> "$GITHUB_OUTPUT"
-          echo "PBS ${pbs}, $(wc -l < packages.txt) packages"
+          echo "PBS ${pbs}, $(( $(wc -l < packages.txt) - 1 )) packages, build inputs ${inputs}"
 
       - name: Compare with previous release
         id: compare
@@ -183,6 +185,9 @@ jobs:
               lines += [f"### Changes since {prev_tag}", ""]
               if prev_pbs and prev_pbs != pbs:
                   lines += [f"**Proxmox Backup Server {prev_pbs} -> {pbs}**", ""]
+              cur_in, prev_in = cur.pop("_build-inputs", None), prev.pop("_build-inputs", None)
+              if cur_in != prev_in:
+                  lines += [f"**Container build inputs changed** (Dockerfile or root/, {prev_in} -> {cur_in})", ""]
               upgraded = [(p, prev[p], cur[p]) for p in sorted(cur) if p in prev and prev[p] != cur[p]]
               added = [(p, cur[p]) for p in sorted(cur) if p not in prev]
               removed = [(p, prev[p]) for p in sorted(prev) if p not in cur]
