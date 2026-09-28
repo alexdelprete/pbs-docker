@@ -139,6 +139,7 @@ Once you have created your own users in PBS, the variable can be dropped.
 | `TZ` | `Europe/Rome` | Container time zone |
 | `PBS_ROOT_PASSWORD` | unset | Password for `root@pam` |
 | `FILE__<NAME>` | unset | Read `<NAME>` from a file instead of the environment |
+| `PBS_KEEP_NAG` | `false` | Set to `true` to keep the "No valid subscription" login dialog |
 
 Any variable can be supplied as `FILE__<NAME>`. The file's contents become
 `<NAME>` for every service in the container.
@@ -149,7 +150,8 @@ s6-overlay runs the following, in dependency order:
 
 1. `init-envfile` resolves `FILE__*` variables
 2. `init-pbs` creates and fixes ownership of the PBS directories, clears stale
-   locks, sets the root password and time zone
+   locks, sets the root password and time zone, and removes the subscription
+   dialog from the web UI unless `PBS_KEEP_NAG=true`
 3. `init-custom-scripts` runs any executables found in `/custom-cont-init.d`
 4. `svc-proxmox-backup-api` starts the API, ready when `127.0.0.1:82` accepts
    connections
@@ -193,6 +195,17 @@ labels:
 immutable tags, so wud reports a new build whether the change was a PBS release
 or a Debian update. Each build has a matching GitHub release listing the package
 changes, which is what the link template points at.
+
+## Subscription dialog
+
+Without a subscription key the web UI shows a "No valid subscription" dialog on
+every login. `init-pbs` patches the single check in `proxmoxlib.js` that
+triggers it, in the same way the community-scripts post-install scripts do, but
+touching only the login check and leaving the Repositories panel's own
+subscription status untouched. The patch is reapplied on every start and the
+log says whether it was applied; if Proxmox restructures that code, the log
+says the pattern was not found and the dialog comes back rather than something
+else silently breaking. Nothing about the subscription check itself changes.
 
 ## Not included
 

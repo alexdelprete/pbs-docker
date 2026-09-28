@@ -37,4 +37,19 @@ if [[ -n "${TZ:-}" ]] && [[ -f "/usr/share/zoneinfo/${TZ}" ]]; then
     echo "${TZ}" > /etc/timezone
 fi
 
+# The web UI shows a "No valid subscription" dialog on every login. This
+# flips only that check (the checked_command one) so the dialog is skipped and
+# the original action still runs. Set PBS_KEEP_NAG=true to leave it alone.
+if [[ "${PBS_KEEP_NAG:-false}" != "true" ]]; then
+    js=/usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
+    if grep -q "NoMoreNagging" "${js}"; then
+        echo "[init-pbs] subscription nag already removed"
+    elif grep -q "res\.data\.status\.toLowerCase() !== 'active'" "${js}"; then
+        sed -i "0,/res\.data\.status\.toLowerCase() !== 'active'/s//res.data.status.toLowerCase() === 'NoMoreNagging'/" "${js}"
+        echo "[init-pbs] subscription nag removed"
+    else
+        echo "[init-pbs] warning: subscription nag pattern not found in proxmox-widget-toolkit $(dpkg-query -f='${Version}' -W proxmox-widget-toolkit), dialog left as is"
+    fi
+fi
+
 echo "[init-pbs] proxmox-backup-server $(dpkg-query -f='${Version}' -W proxmox-backup-server)"
