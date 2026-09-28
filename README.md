@@ -47,6 +47,19 @@ Pin to the immutable tag for reproducibility, to the moving `4.2.6-1` tag to
 receive base updates without changing your compose file, or to `latest` to
 receive everything.
 
+The build is stamped into the image itself, so a running container can say what
+it is regardless of which tag it was started from:
+
+```
+docker inspect pbs --format '{{index .Config.Labels "org.opencontainers.image.version"}}'
+docker logs pbs 2>&1 | grep 'pbs-docker'
+```
+
+The first returns the immutable tag, the second the boot line
+`[init-pbs] pbs-docker 4.2.6-1.4, proxmox-backup-server 4.2.6-1`.
+`org.opencontainers.image.revision` holds the commit it was built from. The PBS
+web UI shows only the PBS release (`4.2.6`), not the image build.
+
 ### SemVer
 
 The tags are valid Semantic Versioning 2.0.0. The PBS release is the

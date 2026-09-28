@@ -52,4 +52,4 @@ if [[ "${PBS_KEEP_NAG:-false}" != "true" ]]; then
     fi
 fi
 
-echo "[init-pbs] proxmox-backup-server $(dpkg-query -f='${Version}' -W proxmox-backup-server)"
+echo "[init-pbs] pbs-docker ${PBS_DOCKER_VERSION:-unknown}, proxmox-backup-server $(dpkg-query -f='${Version}' -W proxmox-backup-server)"

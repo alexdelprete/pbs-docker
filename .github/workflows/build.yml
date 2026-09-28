@@ -109,6 +109,15 @@ jobs:
           echo "tag=${pbs}.${n}" >> "$GITHUB_OUTPUT"
           echo "build ${pbs}.${n}"
 
+      - name: Stamp build version into the image
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          printf 'FROM %s\nLABEL org.opencontainers.image.version="%s" org.opencontainers.image.revision="%s"\nENV PBS_DOCKER_VERSION="%s"\n' \
+            "${{ env.IMAGE }}:build" "${{ steps.build.outputs.tag }}" "${{ github.sha }}" "${{ steps.build.outputs.tag }}" \
+            | docker buildx build --builder default -q -t ${{ env.IMAGE }}:build -
+          docker inspect ${{ env.IMAGE }}:build \
+            --format 'version={{index .Config.Labels "org.opencontainers.image.version"}} revision={{index .Config.Labels "org.opencontainers.image.revision"}}'
+
       - name: Smoke test
         if: steps.compare.outputs.changed == 'true'
         run: |
@@ -117,6 +126,11 @@ jobs:
             if docker exec smoke curl -ksf -o /dev/null https://127.0.0.1:8007/; then
               echo "proxy answered after ${i}s"
               docker logs smoke
+              if ! docker logs smoke 2>&1 | grep -qF "pbs-docker ${{ steps.build.outputs.tag }}"; then
+                echo "boot log does not report pbs-docker ${{ steps.build.outputs.tag }}" >&2
+                docker rm -f smoke
+                exit 1
+              fi
               docker rm -f smoke
               exit 0
             fi
